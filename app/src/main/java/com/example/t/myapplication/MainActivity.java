@@ -1,132 +1,220 @@
 package com.example.t.myapplication;
 
-import android.Manifest;
-import android.annotation.TargetApi;
-import android.bluetooth.BluetoothAdapter;
-import android.bluetooth.BluetoothDevice;
-import android.bluetooth.BluetoothGatt;
-import android.bluetooth.BluetoothManager;
-import android.bluetooth.le.BluetoothLeScanner;
-import android.bluetooth.le.ScanCallback;
-import android.bluetooth.le.ScanFilter;
-import android.bluetooth.le.ScanResult;
-import android.bluetooth.le.ScanSettings;
-import android.content.Context;
-import android.content.Intent;
-import android.content.pm.PackageManager;
-import android.os.Build;
-import android.os.Handler;
-import android.support.v7.app.AppCompatActivity;
-import android.os.Bundle;
-import android.util.Log;
+        import android.annotation.TargetApi;
+        import android.app.Activity;
+        import android.bluetooth.BluetoothAdapter;
+        import android.bluetooth.BluetoothDevice;
+        import android.bluetooth.BluetoothGatt;
+        import android.bluetooth.BluetoothGattCallback;
+        import android.bluetooth.BluetoothGattCharacteristic;
+        import android.bluetooth.BluetoothGattService;
+        import android.bluetooth.BluetoothManager;
+        import android.bluetooth.BluetoothProfile;
+        import android.bluetooth.le.BluetoothLeScanner;
+        import android.bluetooth.le.ScanCallback;
+        import android.bluetooth.le.ScanFilter;
+        import android.bluetooth.le.ScanResult;
+        import android.bluetooth.le.ScanSettings;
+        import android.content.Context;
+        import android.content.Intent;
+        import android.content.pm.PackageManager;
+        import android.os.Build;
+        import android.os.Bundle;
+        import android.os.Handler;
+        import android.support.v7.app.AppCompatActivity;
+        import android.util.Log;
+        import android.widget.Toast;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+        import java.util.ArrayList;
+        import java.util.List;
 
-
-@TargetApi(Build.VERSION_CODES.M)
+@TargetApi(21)
 public class MainActivity extends AppCompatActivity {
-    private static final String TAG = "MainActivity";
-    private static final int REQUEST_ENABLE_BT = 1;
-    private static final int REQUEST_FINE_LOCATION = 2;
-
-    public UUID HEART_RATE_SERVICE_UUID = UUID.fromString("5b552788-5c7b-4ce8-8362-Cf5dd093251d");
-    public UUID HEART_RATE_MEASUREMENT_CHAR_UUID = UUID.fromString("ade7a273-89f9-49e1-b9d4-3cb36bce261b");
-    //public UUID HEART_RATE_CONTROL_POINT_CHAR_UUID = convertFromInteger(0x2A39);
-    //public static UUID ECG_SENSOR = UUID.fromString("ade7a273-89f9-49e1-b9d4-3cb36bce261b");
-    private Handler mHandler;
-    private Map<String, BluetoothDevice> mScanResults;
-
-    private boolean mConnected;
-    private boolean mEchoInitialized;
-    private BluetoothLeScanner mBluetoothLeScanner;
-    private ScanCallback mScanCallback;
-    private BluetoothGatt mGatt;
     private BluetoothAdapter mBluetoothAdapter;
-    private boolean mScanning;
-
+    private int REQUEST_ENABLE_BT = 1;
+    private Handler mHandler;
+    private static final long SCAN_PERIOD = 10000;
+    private BluetoothLeScanner mLEScanner;
+    private ScanSettings settings;
+    private List<ScanFilter> filters;
+    private BluetoothGatt mGatt;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-
-        BluetoothManager bluetoothManager = (BluetoothManager) getSystemService(BLUETOOTH_SERVICE);
+        mHandler = new Handler();
+        if (!getPackageManager().hasSystemFeature(PackageManager.FEATURE_BLUETOOTH_LE)) {
+            Toast.makeText(this, "BLE Not Supported",
+                    Toast.LENGTH_SHORT).show();
+            finish();
+        }
+        final BluetoothManager bluetoothManager =
+                (BluetoothManager) getSystemService(Context.BLUETOOTH_SERVICE);
         mBluetoothAdapter = bluetoothManager.getAdapter();
+        Log.i("OnCreate", "Creating ");
 
     }
 
-    private void startScan() {
-        if (!hasPermissions() || mScanning) {
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (mBluetoothAdapter == null || !mBluetoothAdapter.isEnabled()) {
+            Intent enableBtIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
+            startActivityForResult(enableBtIntent, REQUEST_ENABLE_BT);
+        } else {
+            if (Build.VERSION.SDK_INT >= 21) {
+                mLEScanner = mBluetoothAdapter.getBluetoothLeScanner();
+                settings = new ScanSettings.Builder()
+                        .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+                        .build();
+                filters = new ArrayList<ScanFilter>();
+            }
+            scanLeDevice(true);
+
+        }
+        Log.i("OnResume", "Resuming ");
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        if (mBluetoothAdapter != null && mBluetoothAdapter.isEnabled()) {
+            scanLeDevice(false);
+        }
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (mGatt == null) {
             return;
         }
-        // TODO start the scan
-        List<ScanFilter> filters = new ArrayList<>();
-        ScanSettings settings = new ScanSettings.Builder()
-                .setScanMode(ScanSettings.SCAN_MODE_LOW_POWER)
-                .build();
-        mScanResults = new HashMap<>();
-        mScanCallback = new BtleScanCallback(mScanResults);
-        mBluetoothLeScanner = mBluetoothAdapter.getBluetoothLeScanner();
-        mBluetoothLeScanner.startScan(filters, settings, mScanCallback);
-        mScanning = true;
-        mHandler = new Handler();
-        //mHandler.postDelayed(this::stopScan, SCAN_PERIOD);
+        mGatt.close();
+        mGatt = null;
+        super.onDestroy();
     }
 
-    private class BtleScanCallback extends ScanCallback {
-        @Override
-        public void onScanResult(int callbackType, ScanResult result) {
-            addScanResult(result);
-        }
-        @Override
-        public void onBatchScanResults(List<ScanResult> results) {
-            for (ScanResult result : results) {
-                addScanResult(result);
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (requestCode == REQUEST_ENABLE_BT) {
+            if (resultCode == Activity.RESULT_CANCELED) {
+                //Bluetooth not enabled.
+                finish();
+                return;
             }
         }
+        super.onActivityResult(requestCode, resultCode, data);
+        Log.i("OnActivityResult", "Activity Result ");
+    }
+
+    private void scanLeDevice(final boolean enable) {
+        if (enable) {
+            mHandler.postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    if (Build.VERSION.SDK_INT < 21) {
+                        mBluetoothAdapter.stopLeScan(mLeScanCallback);
+                    } else {
+                        mLEScanner.stopScan(mScanCallback);
+
+                    }
+                }
+            }, SCAN_PERIOD);
+            if (Build.VERSION.SDK_INT < 21) {
+                mBluetoothAdapter.startLeScan(mLeScanCallback);
+            } else {
+                mLEScanner.startScan(filters, settings, mScanCallback);
+            }
+        } else {
+            if (Build.VERSION.SDK_INT < 21) {
+                mBluetoothAdapter.stopLeScan(mLeScanCallback);
+            } else {
+                mLEScanner.stopScan(mScanCallback);
+            }
+        }
+        Log.i("scanLeDevice", "Scanning ");
+    }
+
+
+    private ScanCallback mScanCallback = new ScanCallback() {
+        @Override
+        public void onScanResult(int callbackType, ScanResult result) {
+            Log.i("callbackType", String.valueOf(callbackType));
+            Log.i("result", result.toString());
+            BluetoothDevice btDevice = result.getDevice();
+            connectToDevice(btDevice);
+        }
+
+        @Override
+        public void onBatchScanResults(List<ScanResult> results) {
+            for (ScanResult sr : results) {
+                Log.i("ScanResult - Results", sr.toString());
+            }
+        }
+
         @Override
         public void onScanFailed(int errorCode) {
-            Log.e(TAG, "BLE Scan Failed with code " + errorCode);
-        }
-        private void addScanResult(ScanResult result) {
-            BluetoothDevice device = result.getDevice();
-            String deviceAddress = device.getAddress();
-            mScanResults.put(deviceAddress, device);
+            Log.e("Scan Failed", "Error Code: " + errorCode);
         }
     };
 
-    private boolean hasPermissions() {
-        if (mBluetoothAdapter == null || !mBluetoothAdapter.isEnabled()) {
-            requestBluetoothEnable();
-            return false;
-        } else if (!hasLocationPermissions()) {
-            requestLocationPermission();
-            return false;
+    private BluetoothAdapter.LeScanCallback mLeScanCallback =
+            new BluetoothAdapter.LeScanCallback() {
+                @Override
+                public void onLeScan(final BluetoothDevice device, int rssi,
+                                     byte[] scanRecord) {
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            Log.i("onLeScan", device.toString());
+                            connectToDevice(device);
+                        }
+                    });
+                }
+            };
+
+    public void connectToDevice(BluetoothDevice device) {
+        if (mGatt == null) {
+            mGatt = device.connectGatt(this, false, gattCallback);
+            scanLeDevice(false);// will stop after first device detection
         }
-        return true;
-    }
-    private void requestBluetoothEnable() {
-        Intent enableBtIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
-        startActivityForResult(enableBtIntent, REQUEST_ENABLE_BT);
-        Log.d(TAG, "Requested user enables Bluetooth. Try starting the scan again.");
     }
 
-    private boolean hasLocationPermissions() {
-        return checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED;
-    }
-    private void requestLocationPermission() {
-        requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, REQUEST_FINE_LOCATION);
-    }
+    private final BluetoothGattCallback gattCallback = new BluetoothGattCallback() {
+        @Override
+        public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
+            Log.i("onConnectionStateChange", "Status: " + status);
+            switch (newState) {
+                case BluetoothProfile.STATE_CONNECTED:
+                    Log.i("gattCallback", "STATE_CONNECTED");
+                    gatt.discoverServices();
+                    break;
+                case BluetoothProfile.STATE_DISCONNECTED:
+                    Log.e("gattCallback", "STATE_DISCONNECTED");
+                    break;
+                default:
+                    Log.e("gattCallback", "STATE_OTHER");
+            }
 
+        }
 
+        @Override
+        public void onServicesDiscovered(BluetoothGatt gatt, int status) {
+            List<BluetoothGattService> services = gatt.getServices();
+            Log.i("onServicesDiscovered", services.toString());
+            gatt.readCharacteristic(services.get(1).getCharacteristics().get
+                    (0));
+        }
 
-
+        @Override
+        public void onCharacteristicRead(BluetoothGatt gatt,
+                                         BluetoothGattCharacteristic
+                                                 characteristic, int status) {
+            Log.i("onCharacteristicRead", characteristic.toString());
+            gatt.disconnect();
+        }
+    };
 }
-
 
 
 
