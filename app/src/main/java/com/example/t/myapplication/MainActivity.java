@@ -47,6 +47,7 @@ public class MainActivity extends AppCompatActivity {
     private TextView mInfoTextView;
 
 
+
     //UI Actions
     public void onStartClick(View v){
         startScan();
@@ -64,12 +65,6 @@ public class MainActivity extends AppCompatActivity {
         mInfoTextView = (TextView) findViewById(R.id.textViewInfo);
         setupBluetooth();
         requestLocationPermissions();
-    }
-
-    @Override
-    protected void onPause() {
-        super.onPause();
-        stopScan();
     }
 
     @Override
@@ -257,12 +252,15 @@ public class MainActivity extends AppCompatActivity {
             switch (newState) {
                 case BluetoothProfile.STATE_CONNECTED:
                     Log.i(TAG, "STATE_CONNECTED");
+                    logToTextView("STATE_CONNECTED");
                     gatt.discoverServices();
                     break;
                 case BluetoothProfile.STATE_DISCONNECTED:
+                    logToTextView("STATE_DISCONNECTED");
                     Log.e(TAG, "STATE_DISCONNECTED");
                     break;
                 default:
+                    logToTextView("STATE_OTHER");
                     Log.e(TAG, "STATE_OTHER");
             }
 
@@ -271,31 +269,101 @@ public class MainActivity extends AppCompatActivity {
         @Override
         public void onServicesDiscovered(BluetoothGatt gatt, int status) {
             List<BluetoothGattService> services = gatt.getServices();
-            Log.i("onServicesDiscovered", services.toString());
-            gatt.readCharacteristic(services.get(1).getCharacteristics().get
-                    (0));
+
+            ArrayList<String> ids = new ArrayList<String>();
+            for (BluetoothGattService service :services){
+                ids.add(service.getUuid().toString());
+            }
+            Log.i("onServicesDiscovered",ids.toString());
+            logToTextView(String.format("onServicesDiscovered: %s",ids.toString()));
+
+            BluetoothGattCharacteristic bodyTempCharacteristic = getBodyTemperatureCharacteristics(services);
+            gatt.readCharacteristic(bodyTempCharacteristic);
+
         }
 
         @Override
         public void onCharacteristicRead(BluetoothGatt gatt,
-                                         BluetoothGattCharacteristic
-                                                 characteristic, int status) {
-            logToTextView("CharateristicReading!");
-            Log.i("onCharacteristicRead", characteristic.toString());
-            gatt.disconnect();
+                                         BluetoothGattCharacteristic characteristic,
+                                         int status) {
+            readDataFromCharacteristic(gatt,characteristic);
         }
     };
 
 
+    //charcteristics
+
+    String SENSOR_LIST_SERVICE_ID = "5b552788-5c7b-4ce8-8362-cf5dd093251d";
+    String BODY_TEMPERATURE_SENSOR_ID = "362ba79d-b620-41d3-89ee-48f865559129";
+    BluetoothGattCharacteristic getBodyTemperatureCharacteristics(List<BluetoothGattService> services){
+        for (BluetoothGattService service :services){
+            if (service.getUuid().toString().equals(SENSOR_LIST_SERVICE_ID)){
+                for (BluetoothGattCharacteristic characteristic : service.getCharacteristics()){
+                    if (characteristic.getUuid().toString().equals(BODY_TEMPERATURE_SENSOR_ID)){
+                        return  characteristic;
+                    }
+                }
+            }
+        }
+        throw new java.lang.Error("not temp sensor");
+    }
+
+
+    int bytesToRead = 10;
+
+    private Handler readHandler = new Handler();
+    long READ_DELAY = 1000;
+    void readDataFromCharacteristic(final BluetoothGatt gatt,final BluetoothGattCharacteristic characteristic){
+        logToTextView(String.format("onCharacteristicRead: %s", characteristic.getUuid().toString()));
+        Log.i("onCharacteristicRead", characteristic.getUuid().toString());
+
+        String biteLog = String.format("BYTES COUNT: %d BYTES FROM SENSOR: %s",characteristic.getValue().length, bytesToDec(characteristic.getValue()));
+        logToTextView(biteLog);
+        Log.i("onCharacteristicRead",biteLog);
+        if  (bytesToRead > 0){
+            readHandler.postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    gatt.readCharacteristic(characteristic);
+                    bytesToRead--;
+                }
+            },READ_DELAY );
+        } else {
+            gatt.disconnect();
+        }
+    }
+
     //helpers
     String logs = "";
-    void logToTextView(String text){
-        logs = logs.concat("\n");
-        logs = logs.concat(text);
-        mInfoTextView.setText(logs);
+    void logToTextView(final String text){
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                logs = logs.concat("\n");
+                logs = logs.concat(text);
+                mInfoTextView.setText(logs);
+            }
+        });
     }
     boolean SDKLower21(){
-        return true;//Build.VERSION.SDK_INT < 21;
+        return Build.VERSION.SDK_INT < 21;
+    }
+
+    public String bytesToDec(byte[] bytes) {
+        int[] numbers = bytearray2intarray(bytes);
+        String result = "";
+        for (int i : numbers){
+            result = result.concat(String.valueOf(i));
+            result = result.concat(" ");
+        }
+        return result;
+    }
+    public int[] bytearray2intarray(byte[] barray) {
+        int[] iarray = new int[barray.length];
+        int i = 0;
+        for (byte b : barray)
+            iarray[i++] = b & 0xff;
+        return iarray;
     }
 }
 
