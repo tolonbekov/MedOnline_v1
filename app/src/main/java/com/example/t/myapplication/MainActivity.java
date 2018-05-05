@@ -8,6 +8,7 @@ package com.example.t.myapplication;
         import android.bluetooth.BluetoothGatt;
         import android.bluetooth.BluetoothGattCallback;
         import android.bluetooth.BluetoothGattCharacteristic;
+        import android.bluetooth.BluetoothGattDescriptor;
         import android.bluetooth.BluetoothGattService;
         import android.bluetooth.BluetoothManager;
         import android.bluetooth.BluetoothProfile;
@@ -25,6 +26,7 @@ package com.example.t.myapplication;
         import android.support.v4.app.ActivityCompat;
         import android.support.v4.content.ContextCompat;
         import android.support.v7.app.AppCompatActivity;
+        import android.text.method.ScrollingMovementMethod;
         import android.util.Log;
         import android.view.View;
         import android.widget.TextView;
@@ -32,6 +34,7 @@ package com.example.t.myapplication;
 
         import java.util.ArrayList;
         import java.util.List;
+        import java.util.UUID;
 
 @TargetApi(21)
 public class MainActivity extends AppCompatActivity {
@@ -63,6 +66,7 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         mInfoTextView = (TextView) findViewById(R.id.textViewInfo);
+        mInfoTextView.setMovementMethod(new ScrollingMovementMethod());
         setupBluetooth();
         requestLocationPermissions();
     }
@@ -172,17 +176,17 @@ public class MainActivity extends AppCompatActivity {
             }, SCAN_PERIOD);
             if (SDKLower21()) {
                 mBluetoothAdapter.startLeScan(mLeScanCallback);
-                logToTextView("startLeScan SDK_INT < 21");
+                //logToTextView("startLeScan SDK_INT < 21");
             } else {
-                logToTextView("startLeScan SDK_INT >= 21");
+                //logToTextView("startLeScan SDK_INT >= 21");
                 mLEScanner.startScan(filters, settings, mScanCallback);
             }
         } else {
             if (SDKLower21()) {
-                logToTextView("stopLeScan SDK_INT < 21");
+                //logToTextView("stopLeScan SDK_INT < 21");
                 mBluetoothAdapter.stopLeScan(mLeScanCallback);
             } else {
-                logToTextView("stopLeScan SDK_INT >= 21");
+                //logToTextView("stopLeScan SDK_INT >= 21");
                 mLEScanner.stopScan(mScanCallback);
             }
         }
@@ -277,9 +281,16 @@ public class MainActivity extends AppCompatActivity {
             Log.i("onServicesDiscovered",ids.toString());
             logToTextView(String.format("onServicesDiscovered: %s",ids.toString()));
 
-            BluetoothGattCharacteristic bodyTempCharacteristic = getBodyTemperatureCharacteristics(services);
-            gatt.readCharacteristic(bodyTempCharacteristic);
+            //BluetoothGattCharacteristic bodyTempCharacteristic = getBodyTemperatureCharacteristics(services);
+            BluetoothGattCharacteristic ecgCharacteristic = getEcgCharacteristics(services);
 
+            //BluetoothGattDescriptor descriptor = bodyTempCharacteristic.getDescriptor(
+            //        UUID.fromString("362ba79d-b620-41d3-89ee-48f865559129"));
+            //mGatt.setCharacteristicNotification(bodyTempCharacteristic, true);
+            //gatt.readCharacteristic(bodyTempCharacteristic);
+            gatt.readCharacteristic(ecgCharacteristic);
+            //descriptor.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
+            //mGatt.writeDescriptor(descriptor);
         }
 
         @Override
@@ -288,14 +299,24 @@ public class MainActivity extends AppCompatActivity {
                                          int status) {
             readDataFromCharacteristic(gatt,characteristic);
         }
+        @Override
+        // Characteristic notification
+        public void onCharacteristicChanged(BluetoothGatt gatt,
+                                            BluetoothGattCharacteristic characteristic) {
+            readDataFromCharacteristic(gatt, characteristic);
+        }
     };
 
 
     //charcteristics
-
     String SENSOR_LIST_SERVICE_ID = "5b552788-5c7b-4ce8-8362-cf5dd093251d";
     String BODY_TEMPERATURE_SENSOR_ID = "362ba79d-b620-41d3-89ee-48f865559129";
+    String ECG_SENSOR_ID = "ade7a273-89f9-49e1-b9d4-3cb36bce261b";
+
+
     BluetoothGattCharacteristic getBodyTemperatureCharacteristics(List<BluetoothGattService> services){
+
+
         for (BluetoothGattService service :services){
             if (service.getUuid().toString().equals(SENSOR_LIST_SERVICE_ID)){
                 for (BluetoothGattCharacteristic characteristic : service.getCharacteristics()){
@@ -306,8 +327,20 @@ public class MainActivity extends AppCompatActivity {
             }
         }
         throw new java.lang.Error("not temp sensor");
-    }
+    };
 
+    BluetoothGattCharacteristic getEcgCharacteristics(List<BluetoothGattService> services) {
+        for (BluetoothGattService service :services){
+            if (service.getUuid().toString().equals(SENSOR_LIST_SERVICE_ID)){
+                for (BluetoothGattCharacteristic characteristic : service.getCharacteristics()){
+                    if (characteristic.getUuid().toString().equals(ECG_SENSOR_ID)){
+                        return  characteristic;
+                    }
+                }
+            }
+        }
+        throw new java.lang.Error("Not ECG Sensor");
+    }
 
     int bytesToRead = 10;
 
