@@ -1,6 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <menu xmlns:android="http://schemas.android.com/apk/res/android" >
+    <item
+        android:id="@+id/startScan"
+        android:title="Start Scan">
 
+    </item>
+    <item
+        android:id="@+id/stopScan"
+        android:title="Stop Scan">
+
+    </item>
     <item
         android:id="@+id/actionAdd"
         android:title="Feed new Entry">

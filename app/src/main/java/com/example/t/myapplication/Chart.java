@@ -100,6 +100,7 @@ public class Chart extends AppCompatActivity implements OnChartValueSelectedList
         rightAxis.setEnabled(false);
 
     }
+
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
         getMenuInflater().inflate(R.menu.realtime, menu);
